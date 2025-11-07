@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="styles.css" />
+    <title>Simulador FIFO + Second Chance</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Simulador de Gerência de Memória</h1>
+            <p>FIFO + Second Chance - Ambos no Mesmo Quadrante</p>
+            <p><strong>Alunos:</strong> Emilly Lemke, Giovana Gomes, Larissa Lemes, Maria Eduarda e Mateus Tavares</p>
+        </header>
+        
+        <div class="control-panel">
+            <div class="input-group">
+                <label for="frames">Quadros de Memória:</label>
+                <input type="text" id="frames" value="3">
+                
+                <label for="sequence">Sequência de Referência:</label>
+                <input type="text" id="sequence" value="7 0 1 2 0 3 0 4 2 3 0 3 2">
+            </div>
+            
+            <div class="button-group">
+                <button id="startBtn" class="btn-primary">Iniciar Simulação</button>
+                <button id="nextBtn" class="btn-secondary" disabled>Próximo Passo</button>
+                <button id="autoBtn" class="btn-secondary" disabled>Execução Automática</button>
+                <button id="stopBtn" class="btn-warning" disabled>Parar</button>
+                <button id="resetBtn" class="btn-danger" disabled>Reiniciar</button>
+                
+                <div class="slider-container">
+                    <label for="speed">Velocidade:</label>
+                    <input type="range" id="speed" min="200" max="2000" value="800">
+                    <span id="speedValue">800ms</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="main-simulation">
+            <div class="algorithms-container">
+                <div class="panel-title">Algoritmos de Substituição de Páginas</div>
+                <div class="algorithms-grid">
+                    <div class="algorithm-section">
+                        <div class="section-title fifo-title">FIFO (First-In, First-Out)</div>
+                        <div class="memory-display" id="fifoMemory"></div>
+                        <div class="stats fifo-stats" id="fifoStats">Faltas de Página: 0</div>
+                    </div>
+                    
+                    <div class="algorithm-section">
+                        <div class="section-title sc-title">Second Chance (Bits 0-1)</div>
+                        <div class="memory-display" id="scMemory"></div>
+                        <div class="stats sc-stats" id="scStats">Faltas de Página: 0</div>
+                        <div class="legend">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #e74c3c"></div>
+                                <span>Bit 0 - Pode remover</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background-color: #27ae60"></div>
+                                <span>Bit 1 - Segunda chance</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="narrator-panel">
+                <div class="panel-title">Narração da Simulação</div>
+                <div class="narrator-content" id="narratorContent">
+                    <div class="narrator-message">
+                        Bem-vindo ao simulador! Configure os parâmetros e clique em "Iniciar Simulação".
+                    </div>
+                </div>
+                <div class="current-step">
+                    <span class="step-indicator" id="currentStep">Pronto para iniciar</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="disk-panel">
+            <div class="panel-title">Disco (Páginas Removidas)</div>
+            <div class="disk-display" id="diskDisplay"></div>
+        </div>
+        
+        <div class="info-panel">
+            <div class="panel-title">Explicação dos Algoritmos</div>
+            <div class="info-content">
+                <div class="info-box">
+                    <h3>FIFO (First-In, First-Out)</h3>
+                    <p>Substitui a página que está na memória há mais tempo. Simples mas pode não ter o melhor desempenho.</p>
+                    <p><strong>Vantagem:</strong> Simplicidade de implementação</p>
+                    <p><strong>Desvantagem:</strong> Pode remover páginas importantes</p>
+                </div>
+                <div class="info-box">
+                    <h3>Second Chance (Bits 0-1)</h3>
+                    <p>Melhoria do FIFO com bits de referência 0 ou 1. Páginas com bit 1 recebem uma segunda chance.</p>
+                    <p><strong>Bit 1 (Verde):</strong> Página usada recentemente - não remove</p>
+                    <p><strong>Bit 0 (Vermelho):</strong> Página não usada - pode remover</p>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+
+    <script>
+        // Estado da simulação
+        let simulationState = {
+            framesCount: 3,
+            referenceSequence: [],
+            currentStep: 0,
+            isRunning: false,
+            autoTimer: null
+        };
+
+        // Estado do FIFO
+        let fifoState = {
+            queue: [],
+            memory: [],
+            set: new Set(),
+            faults: 0
+        };
+
+        // Estado do Second Chance
+        let scState = {
+            memory: [],
+            bits: [],
+            pointer: 0,
+            set: new Set(),
+            faults: 0
+        };
+
+        // Estado do Disco
+        let diskState = {
+            pages: new Set()
+        };
+
+        // Elementos da UI
+        const elements = {
+            framesInput: document.getElementById('frames'),
+            sequenceInput: document.getElementById('sequence'),
+            startBtn: document.getElementById('startBtn'),
+            nextBtn: document.getElementById('nextBtn'),
+            autoBtn: document.getElementById('autoBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            resetBtn: document.getElementById('resetBtn'),
+            speedSlider: document.getElementById('speed'),
+            speedValue: document.getElementById('speedValue'),
+            fifoMemory: document.getElementById('fifoMemory'),
+            fifoStats: document.getElementById('fifoStats'),
+            scMemory: document.getElementById('scMemory'),
+            scStats: document.getElementById('scStats'),
+            diskDisplay: document.getElementById('diskDisplay'),
+            narratorContent: document.getElementById('narratorContent'),
+            currentStep: document.getElementById('currentStep')
+        };
+
+        // Inicialização
+        function initialize() {
+            elements.startBtn.addEventListener('click', startSimulation);
+            elements.nextBtn.addEventListener('click', nextStep);
+            elements.autoBtn.addEventListener('click', startAuto);
+            elements.stopBtn.addEventListener('click', stopAuto);
+            elements.resetBtn.addEventListener('click', resetSimulation);
+            elements.speedSlider.addEventListener('input', updateSpeed);
+            updateSpeed();
+        }
+
+        function updateSpeed() {
+            elements.speedValue.textContent = `${elements.speedSlider.value}ms`;
+        }
+
+        function startSimulation() {
+            try {
+                simulationState.framesCount = parseInt(elements.framesInput.value);
+                if (isNaN(simulationState.framesCount) || simulationState.framesCount <= 0) {
+                    throw new Error('Por favor informe um número inteiro maior que zero em "Quadros de Memória".');
+                }
+            } catch (error) {
+                alert(error.message);
+                return;
+            }
+
+            simulationState.referenceSequence = parseSequence(elements.sequenceInput.value);
+            if (simulationState.referenceSequence.length === 0) {
+                alert('Sequência vazia ou inválida. Digite números separados por espaço ou vírgula.');
+                return;
+            }
+
+            initializeFifoState();
+            initializeScState();
+            initializeDiskState();
+            simulationState.currentStep = 0;
+            
+            elements.narratorContent.innerHTML = '';
+            addNarration(`Iniciando simulação com ${simulationState.framesCount} quadros de memória.`);
+            addNarration(`Sequência: [${simulationState.referenceSequence.join(', ')}]`);
+
+            buildMemoryDisplays();
+
+            elements.startBtn.disabled = true;
+            elements.nextBtn.disabled = false;
+            elements.autoBtn.disabled = false;
+            elements.resetBtn.disabled = false;
+            elements.stopBtn.disabled = true;
+
+            updateCurrentStepDisplay();
+            elements.nextBtn.focus();
+        }
+
+        function nextStep() {
+            if (simulationState.currentStep >= simulationState.referenceSequence.length) {
+                addNarration('✅ <strong>Simulação concluída!</strong>');
+                elements.nextBtn.disabled = true;
+                elements.autoBtn.disabled = true;
+                return;
+            }
+
+            const page = simulationState.referenceSequence[simulationState.currentStep];
+            addNarration(`<div style="background:#e1f5fe; padding:8px; border-radius:4px; margin-bottom:10px;"><strong>Referência à página: ${page}</strong></div>`);
+            
+            executeFifoStep(page);
+            executeScStep(page);
+
+            simulationState.currentStep++;
+            updateCurrentStepDisplay();
+            
+            if (simulationState.currentStep >= simulationState.referenceSequence.length) {
+                addNarration('📊 <strong>Resultados finais:</strong>');
+                addNarration(`FIFO: ${fifoState.faults} faltas | Second Chance: ${scState.faults} faltas`);
+                elements.nextBtn.disabled = true;
+                elements.autoBtn.disabled = true;
+            }
+        }
+
+        function startAuto() {
+            elements.autoBtn.disabled = true;
+            elements.stopBtn.disabled = false;
+            elements.nextBtn.disabled = true;
+
+            const delay = parseInt(elements.speedSlider.value);
+            simulationState.autoTimer = setInterval(() => {
+                if (simulationState.currentStep >= simulationState.referenceSequence.length) {
+                    stopAuto();
+                    return;
+                }
+                nextStep();
+            }, delay);
+        }
+
+        function stopAuto() {
+            if (simulationState.autoTimer) {
+                clearInterval(simulationState.autoTimer);
+                simulationState.autoTimer = null;
+            }
+            
+            elements.stopBtn.disabled = true;
+            elements.autoBtn.disabled = false;
+            elements.nextBtn.disabled = simulationState.currentStep >= simulationState.referenceSequence.length;
+        }
+
+        function resetSimulation() {
+            if (simulationState.autoTimer) {
+                clearInterval(simulationState.autoTimer);
+                simulationState.autoTimer = null;
+            }
+            
+            elements.startBtn.disabled = false;
+            elements.nextBtn.disabled = true;
+            elements.autoBtn.disabled = true;
+            elements.stopBtn.disabled = true;
+            elements.resetBtn.disabled = true;
+            
+            elements.fifoMemory.innerHTML = '';
+            elements.scMemory.innerHTML = '';
+            elements.diskDisplay.innerHTML = '';
+            elements.narratorContent.innerHTML = '<div class="narrator-message">Simulação reiniciada. Configure os parâmetros e clique em "Iniciar Simulação".</div>';
+            elements.currentStep.innerHTML = 'Pronto para iniciar';
+        }
+
+        function initializeFifoState() {
+            fifoState.queue = [];
+            fifoState.memory = Array(simulationState.framesCount).fill(null);
+            fifoState.set = new Set();
+            fifoState.faults = 0;
+            updateFifoStats();
+        }
+
+        function initializeScState() {
+            scState.memory = Array(simulationState.framesCount).fill(null);
+            scState.bits = Array(simulationState.framesCount).fill(0);
+            scState.pointer = 0;
+            scState.set = new Set();
+            scState.faults = 0;
+            updateScStats();
+        }
+
+        function initializeDiskState() {
+            diskState.pages = new Set();
+            updateDiskDisplay();
+        }
+
+        function buildMemoryDisplays() {
+            elements.fifoMemory.innerHTML = '';
+            for (let i = 0; i < simulationState.framesCount; i++) {
+                const box = document.createElement('div');
+                box.className = 'memory-box';
+                box.textContent = '-';
+                elements.fifoMemory.appendChild(box);
+            }
+            
+            elements.scMemory.innerHTML = '';
+            for (let i = 0; i < simulationState.framesCount; i++) {
+                const box = document.createElement('div');
+                box.className = 'memory-box sc-box';
+                
+                const value = document.createElement('div');
+                value.className = 'sc-value';
+                value.textContent = '-';
+                
+                const bit = document.createElement('div');
+                bit.className = 'sc-bit';
+                bit.textContent = 'bit: 0';
+                
+                box.appendChild(value);
+                box.appendChild(bit);
+                elements.scMemory.appendChild(box);
+            }
+        }
+
+        function executeFifoStep(page) {
+            addNarration('🔄 <strong>Executando FIFO:</strong>');
+            
+            if (fifoState.set.has(page)) {
+                addNarration(`Página ${page} já está na memória. <span style="color:green">ACERTO!</span>`);
+            } else {
+                fifoState.faults++;
+                updateFifoStats();
+                addNarration(`Página ${page} não encontrada. <span style="color:red">FALTA DE PÁGINA!</span>`);
+                
+                if (fifoState.set.size < simulationState.framesCount) {
+                    const emptyIndex = fifoState.memory.indexOf(null);
+                    fifoState.memory[emptyIndex] = page;
+                    fifoState.set.add(page);
+                    fifoState.queue.push(page);
+                    addNarration(`Alocada no quadro ${emptyIndex + 1}.`);
+                } else {
+                    const removed = fifoState.queue.shift();
+                    const removeIndex = fifoState.memory.indexOf(removed);
+                    
+                    moveToDisk(removed);
+                    
+                    fifoState.memory[removeIndex] = page;
+                    fifoState.set.delete(removed);
+                    fifoState.set.add(page);
+                    fifoState.queue.push(page);
+                    addNarration(`Substituindo página ${removed} (mais antiga) por ${page}.`);
+                }
+            }
+            
+            updateFifoDisplay();
+        }
+
+        function executeScStep(page) {
+            addNarration('🔄 <strong>Executando Second Chance:</strong>');
+            
+            if (scState.set.has(page)) {
+                const position = scState.memory.indexOf(page);
+                if (position >= 0) {
+                    // Página referenciada - bit vira 1
+                    scState.bits[position] = 1;
+                    addNarration(`Página ${page} já está na memória. <strong>Bit definido para 1</strong>. <span style="color:green">ACERTO!</span>`);
+                }
+                updateScDisplay();
+                return;
+            }
+            
+            scState.faults++;
+            updateScStats();
+            addNarration(`Página ${page} não encontrada. <span style="color:red">FALTA DE PÁGINA!</span>`);
+            
+            if (scState.set.size < simulationState.framesCount) {
+                const emptyIndex = scState.memory.indexOf(null);
+                scState.memory[emptyIndex] = page;
+                // Nova página começa com bit 1
+                scState.bits[emptyIndex] = 1;
+                scState.set.add(page);
+                addNarration(`Alocada no quadro ${emptyIndex + 1} com <strong>bit=1</strong>.`);
+                updateScDisplay();
+            } else {
+                addNarration('Memória cheia. Procurando página para substituir...');
+                
+                let replaced = false;
+                let attempts = 0;
+                const maxAttempts = simulationState.framesCount * 2;
+                
+                while (!replaced && attempts < maxAttempts) {
+                    attempts++;
+                    const currentBit = scState.bits[scState.pointer];
+                    addNarration(`Quadro ${scState.pointer + 1}: página ${scState.memory[scState.pointer]}, bit=${currentBit}`);
+                    
+                    updateScDisplay();
+                    
+                    if (currentBit === 0) {
+                        const removed = scState.memory[scState.pointer];
+                        addNarration(`<strong>Bit=0 encontrado!</strong> Substituindo página ${removed} por ${page}.`);
+                        
+                        moveToDisk(removed);
+                        
+                        scState.set.delete(removed);
+                        scState.memory[scState.pointer] = page;
+                        // Nova página começa com bit 1
+                        scState.bits[scState.pointer] = 1;
+                        scState.set.add(page);
+                        addNarration(`Página ${page} alocada com <strong>bit=1</strong>.`);
+                        
+                        scState.pointer = (scState.pointer + 1) % simulationState.framesCount;
+                        replaced = true;
+                    } else {
+                        addNarration(`<strong>Bit=1 encontrado.</strong> Dando segunda chance. Bit mudado para 0.`);
+                        // Muda bit de 1 para 0
+                        scState.bits[scState.pointer] = 0;
+                        scState.pointer = (scState.pointer + 1) % simulationState.framesCount;
+                    }
+                    
+                    updateScDisplay();
+                }
+                
+                if (!replaced) {
+                    addNarration(`❌ Não foi possível substituir após ${attempts} tentativas. Substituindo página atual.`);
+                    const removed = scState.memory[scState.pointer];
+                    moveToDisk(removed);
+                    scState.set.delete(removed);
+                    scState.memory[scState.pointer] = page;
+                    scState.bits[scState.pointer] = 1;
+                    scState.set.add(page);
+                    scState.pointer = (scState.pointer + 1) % simulationState.framesCount;
+                }
+            }
+        }
+
+        function moveToDisk(page) {
+            diskState.pages.add(page);
+            updateDiskDisplay();
+            addNarration(`💾 Página ${page} movida para o disco.`);
+        }
+
+        function updateFifoDisplay() {
+            const boxes = elements.fifoMemory.querySelectorAll('.memory-box');
+            
+            for (let i = 0; i < simulationState.framesCount; i++) {
+                const value = fifoState.memory[i] === null ? '-' : fifoState.memory[i].toString();
+                boxes[i].textContent = value;
+                boxes[i].className = value === '-' ? 'memory-box' : 'memory-box filled';
+            }
+            
+            updateFifoStats();
+        }
+
+        function updateScDisplay() {
+            const boxes = elements.scMemory.querySelectorAll('.sc-box');
+            
+            for (let i = 0; i < simulationState.framesCount; i++) {
+                const value = scState.memory[i] === null ? '-' : scState.memory[i].toString();
+                const bit = scState.bits[i];
+                
+                const valueElement = boxes[i].querySelector('.sc-value');
+                const bitElement = boxes[i].querySelector('.sc-bit');
+                
+                valueElement.textContent = value;
+                bitElement.textContent = `bit: ${bit}`;
+                bitElement.className = `sc-bit bit-${bit}`;
+                
+                boxes[i].className = `memory-box sc-box ${i === scState.pointer ? 'sc-pointer' : ''} ${value !== '-' ? 'filled' : ''}`;
+            }
+            
+            updateScStats();
+        }
+
+        function updateDiskDisplay() {
+            elements.diskDisplay.innerHTML = '';
+            
+            const pagesArray = Array.from(diskState.pages).sort((a, b) => a - b);
+            
+            pagesArray.forEach(page => {
+                const box = document.createElement('div');
+                box.className = 'disk-box';
+                box.textContent = page;
+                elements.diskDisplay.appendChild(box);
+            });
+            
+            if (pagesArray.length === 0) {
+                const message = document.createElement('div');
+                message.textContent = 'Nenhuma página no disco';
+                message.style.color = '#999';
+                message.style.fontStyle = 'italic';
+                elements.diskDisplay.appendChild(message);
+            }
+        }
+
+        function updateFifoStats() {
+            elements.fifoStats.textContent = `Faltas de Página: ${fifoState.faults}`;
+        }
+
+        function updateScStats() {
+            elements.scStats.textContent = `Faltas de Página: ${scState.faults}`;
+        }
+
+        function updateCurrentStepDisplay() {
+            elements.currentStep.innerHTML = `<span class="step-indicator">Passo ${simulationState.currentStep + 1} de ${simulationState.referenceSequence.length}</span>`;
+        }
+
+        function addNarration(text) {
+            const message = document.createElement('div');
+            message.className = 'narrator-message';
+            message.innerHTML = text;
+            elements.narratorContent.appendChild(message);
+            elements.narratorContent.scrollTop = elements.narratorContent.scrollHeight;
+        }
+
+        function parseSequence(input) {
+            if (!input || input.trim() === '') return [];
+            
+            const tokens = input.trim().split(/[,\s]+/);
+            const sequence = [];
+            
+            for (const token of tokens) {
+                const num = parseInt(token);
+                if (!isNaN(num)) {
+                    sequence.push(num);
+                }
+            }
+            
+            return sequence;
+        }
+
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
